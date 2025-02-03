@@ -2,6 +2,16 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import re
+from spellchecker import SpellChecker
+
+spell = SpellChecker(language="fr")  # Détecte et corrige les fautes en français
+
+def correct_spelling(user_query):
+    """Corrige les fautes d'orthographe dans la requête utilisateur."""
+    words = user_query.split()
+    corrected_words = [spell.correction(word) if spell.correction(word) else word for word in words]
+    return " ".join(corrected_words)
+
 
 # === 🔍 Exclure les résultats non pertinents (films, jeux vidéo, etc.) ===
 EXCLUDED_TERMS = ["film", "série télévisée", "jeux vidéo", "album", "chanson", "bande dessinée", "roman", "fiction"]
@@ -30,6 +40,9 @@ def refine_query(user_query):
     for pattern, replacement in question_patterns.items():
         user_query = re.sub(pattern, replacement, user_query)
 
+    if not any(word in user_query for word in HISTORICAL_KEYWORDS):
+        user_query += f" {HISTORICAL_KEYWORDS[0]}"  # Ajoute "histoire" par défaut
+    
     # Ajout d’un mot-clé historique si ce n’est pas déjà le cas
     if not any(word in user_query for word in HISTORICAL_KEYWORDS):
         user_query += f" {HISTORICAL_KEYWORDS[0]}"  # Ajoute "histoire" par défaut
