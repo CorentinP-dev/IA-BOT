@@ -2,16 +2,8 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import re
-from spellchecker import SpellChecker
-
-spell = SpellChecker(language="fr")  # Détecte et corrige les fautes en français
-
-def correct_spelling(user_query):
-    """Corrige les fautes d'orthographe dans la requête utilisateur."""
-    words = user_query.split()
-    corrected_words = [spell.correction(word) if spell.correction(word) else word for word in words]
-    return " ".join(corrected_words)
-
+from textblob import TextBlob
+from textblob_fr import PatternTagger, PatternAnalyzer  # NLP français
 
 # === 🔍 Exclure les résultats non pertinents (films, jeux vidéo, etc.) ===
 EXCLUDED_TERMS = ["film", "série télévisée", "jeux vidéo", "album", "chanson", "bande dessinée", "roman", "fiction"]
@@ -20,9 +12,18 @@ EXCLUDED_TERMS = ["film", "série télévisée", "jeux vidéo", "album", "chanso
 HISTORICAL_KEYWORDS = ["histoire", "événement", "bataille", "révolution", "empire", "antiquité", "moyen âge", 
                         "renaissance", "siècle", "guerre", "traité", "dynastie", "monarchie", "royaume", "empereur"]
 
-# === 📌 Fonction pour reformuler le prompt utilisateur ===
+# === 📌 Correction avancée des fautes avec TextBlob ===
+def correct_spelling(text):
+    """Corrige les fautes d'orthographe et la grammaire dans la requête utilisateur"""
+    blob = TextBlob(text, pos_tagger=PatternTagger(), analyzer=PatternAnalyzer())
+    return str(blob.correct())  # Renvoie le texte corrigé
+
+# === 📌 Fonction pour reformuler la requête utilisateur ===
 def refine_query(user_query):
-    """Améliore la requête pour la rendre plus pertinente historiquement."""
+    """Corrige la requête et l'améliore pour la rendre plus pertinente historiquement."""
+
+    # Correction des fautes d'orthographe et de grammaire
+    user_query = correct_spelling(user_query)
 
     # Détection des questions et reformulation
     question_patterns = {
@@ -40,9 +41,6 @@ def refine_query(user_query):
     for pattern, replacement in question_patterns.items():
         user_query = re.sub(pattern, replacement, user_query)
 
-    if not any(word in user_query for word in HISTORICAL_KEYWORDS):
-        user_query += f" {HISTORICAL_KEYWORDS[0]}"  # Ajoute "histoire" par défaut
-    
     # Ajout d’un mot-clé historique si ce n’est pas déjà le cas
     if not any(word in user_query for word in HISTORICAL_KEYWORDS):
         user_query += f" {HISTORICAL_KEYWORDS[0]}"  # Ajoute "histoire" par défaut
@@ -51,7 +49,7 @@ def refine_query(user_query):
 
 # === 🔍 Trouver l'article Wikipédia le plus pertinent ===
 def search_wikipedia(query):
-    query = refine_query(query)  # Reformuler la requête
+    query = refine_query(query)  # Reformuler et corriger la requête
     search_url = f"https://fr.wikipedia.org/w/index.php?search={query.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0"}
 
@@ -105,10 +103,9 @@ def scrape_wikipedia(query):
 
     return {"titre": title, "source": wikipedia_url, "contenu": content}
 
-
 # === 📌 Fonction principale : Recherche et Scraping ===
 def get_historical_data(user_query):
-    refined_query = refine_query(user_query)  # Reformuler la requête
+    refined_query = refine_query(user_query)  # Reformuler et corriger la requête
     print(f"🔍 Recherche pour : {refined_query}...")
 
     wikipedia_data = scrape_wikipedia(refined_query)
@@ -120,10 +117,12 @@ def get_historical_data(user_query):
     print("✅ Scraping terminé ! L'article historique est stocké dans data.json")
     return wikipedia_data
 
-
 # === ✨ Tester avec une requête utilisateur ===
 if __name__ == "__main__":
     user_query = input("Posez une question historique : ")
     result = get_historical_data(user_query)
 
-    print(f"\n📜 {result['titre']}\n🔗 {result['source']}\n{result['contenu'][:1000]}...")
+    print(f"\n📜 {result['titre']}")
+    print(f"🔗 {result['source']}")
+    print(f"{result['contenu'][:1000]}...")
+    
