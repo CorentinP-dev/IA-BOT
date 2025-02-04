@@ -2,30 +2,38 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import re
-from textblob import TextBlob
-from textblob_fr import PatternTagger, PatternAnalyzer  # NLP français
+import warnings
+from spellchecker import SpellChecker
 
-# === 🔍 Exclure les résultats non pertinents (films, jeux vidéo, etc.) ===
+warnings.simplefilter("ignore", ResourceWarning)
+
 EXCLUDED_TERMS = ["film", "série télévisée", "jeux vidéo", "album", "chanson", "bande dessinée", "roman", "fiction"]
+HISTORICAL_KEYWORDS = ["histoire", "événement", "bataille", "révolution", "empire", "antiquité", 
+                       "moyen âge", "renaissance", "siècle", "guerre", "traité", "dynastie", 
+                       "monarchie", "royaume", "empereur"]
 
-# === 🔍 Mots-clés pour forcer la recherche historique ===
-HISTORICAL_KEYWORDS = ["histoire", "événement", "bataille", "révolution", "empire", "antiquité", "moyen âge", 
-                        "renaissance", "siècle", "guerre", "traité", "dynastie", "monarchie", "royaume", "empereur"]
-
-# === 📌 Correction avancée des fautes avec TextBlob ===
 def correct_spelling(text):
-    """Corrige les fautes d'orthographe et la grammaire dans la requête utilisateur"""
-    blob = TextBlob(text, pos_tagger=PatternTagger(), analyzer=PatternAnalyzer())
-    return str(blob.correct())  # Renvoie le texte corrigé
+    """Corrige les fautes d'orthographe en français sans modifier les noms propres"""
+    spell = SpellChecker(language="fr")
+    words = text.split()
+    
+    corrected_words = []
+    for word in words:
+        corrected = spell.correction(word)
+        
+        # 🔹 Éviter les corrections absurdes
+        if corrected is None or corrected.lower() in ["duel", "nuisance", "automobile", "napoleon"]:
+            corrected_words.append(word)
+        else:
+            corrected_words.append(corrected)
+    
+    return " ".join(corrected_words)
 
-# === 📌 Fonction pour reformuler la requête utilisateur ===
 def refine_query(user_query):
     """Corrige la requête et l'améliore pour la rendre plus pertinente historiquement."""
-
-    # Correction des fautes d'orthographe et de grammaire
+    
     user_query = correct_spelling(user_query)
-
-    # Détection des questions et reformulation
+    
     question_patterns = {
         r"quand (.+)": r"Date de \1",
         r"où (.+)": r"Lieu de \1",
@@ -41,15 +49,13 @@ def refine_query(user_query):
     for pattern, replacement in question_patterns.items():
         user_query = re.sub(pattern, replacement, user_query)
 
-    # Ajout d’un mot-clé historique si ce n’est pas déjà le cas
     if not any(word in user_query for word in HISTORICAL_KEYWORDS):
-        user_query += f" {HISTORICAL_KEYWORDS[0]}"  # Ajoute "histoire" par défaut
+        user_query += " histoire"
 
     return user_query
 
-# === 🔍 Trouver l'article Wikipédia le plus pertinent ===
 def search_wikipedia(query):
-    query = refine_query(query)  # Reformuler et corriger la requête
+    query = refine_query(query)
     search_url = f"https://fr.wikipedia.org/w/index.php?search={query.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0"}
 
@@ -58,7 +64,7 @@ def search_wikipedia(query):
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"❌ Erreur lors de la requête Wikipédia : {e}")
-        return None  # En cas d'erreur
+        return None
 
     soup = BeautifulSoup(response.text, "html.parser")
     results = soup.find_all("div", class_="mw-search-result-heading")
@@ -69,21 +75,19 @@ def search_wikipedia(query):
             relative_link = link["href"]
             page_url = f"https://fr.wikipedia.org{relative_link}"
 
-            # Vérifier que l'article ne contient pas un mot-clé exclu
             if not any(term in page_url.lower() for term in EXCLUDED_TERMS):
                 return page_url
 
-    return None  # Aucun résultat pertinent
+    return None
 
-# === 📝 Scraper Wikipédia avec l'article complet ===
 def scrape_wikipedia(query):
-    wikipedia_url = search_wikipedia(query)  # Trouver la meilleure page
+    wikipedia_url = search_wikipedia(query)
 
     if not wikipedia_url:
         return {"titre": query, "source": "Wikipédia", "contenu": "Aucune donnée historique trouvée sur Wikipédia."}
 
     headers = {"User-Agent": "Mozilla/5.0"}
-    
+
     try:
         response = requests.get(wikipedia_url, headers=headers, timeout=5)
         response.raise_for_status()
@@ -94,35 +98,28 @@ def scrape_wikipedia(query):
     soup = BeautifulSoup(response.text, "html.parser")
     title = soup.find("h1").text
 
-    # Récupérer tout le contenu de l'article
     content = ""
     for p in soup.find_all("p"):
         text = p.get_text().strip()
-        if text:  # Ignorer les paragraphes vides
+        if text:
             content += text + "\n\n"
 
     return {"titre": title, "source": wikipedia_url, "contenu": content}
 
-# === 📌 Fonction principale : Recherche et Scraping ===
 def get_historical_data(user_query):
-    refined_query = refine_query(user_query)  # Reformuler et corriger la requête
+    refined_query = refine_query(user_query)
     print(f"🔍 Recherche pour : {refined_query}...")
 
     wikipedia_data = scrape_wikipedia(refined_query)
 
-    # Sauvegarde dans un fichier JSON avec article complet
     with open("data.json", "w", encoding="utf-8") as f:
         json.dump(wikipedia_data, f, ensure_ascii=False, indent=4)
 
     print("✅ Scraping terminé ! L'article historique est stocké dans data.json")
     return wikipedia_data
 
-# === ✨ Tester avec une requête utilisateur ===
 if __name__ == "__main__":
     user_query = input("Posez une question historique : ")
     result = get_historical_data(user_query)
 
-    print(f"\n📜 {result['titre']}")
-    print(f"🔗 {result['source']}")
-    print(f"{result['contenu'][:1000]}...")
-    
+    print(f"\n📜 {result['titre']}\n🔗 {result['source']}\n{result['contenu'][:1000]}...")
