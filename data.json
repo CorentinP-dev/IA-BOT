@@ -1,7 +1,6 @@
 {
-    "prompt_utilisateur": "quel est la date de la révolution francaise",
-    "recherche_wikipedia": "quelle est la date de la révolutiofrançaisese",
-    "titre": "Aucune donnée trouvée",
+    "prompt_utilisateur": "quel est la date de la révolution française ?",
     "source": "Aucune source disponible",
+    "titre": "Aucune donnée trouvée",
     "contenu": "Aucune donnée historique disponible."
 }
