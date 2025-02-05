@@ -7,6 +7,36 @@ import logging
 from urllib.parse import quote
 from textblob import TextBlob
 from textblob_fr import PatternTagger, PatternAnalyzer
+import requests
+import logging
+
+HUGGINGFACE_API_KEY = "TON_API_KEY_ICI"  # Ajoute ta clé API ici
+
+def optimize_query_with_ai(user_prompt):
+    """
+    Envoie le prompt utilisateur à un modèle de langage IA pour reformuler la requête en un mot-clé précis pour Wikipédia.
+    """
+    api_url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct"
+    headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
+
+    # Construire une requête adaptée à Wikipédia
+    formatted_prompt = f"Réécris cette question pour qu'elle corresponde exactement au titre d'une page Wikipédia existante dans le domaine historique : {user_prompt}"
+
+    data = {"inputs": formatted_prompt, "parameters": {"max_length": 50}}
+
+    try:
+        response = requests.post(api_url, headers=headers, json=data)
+        response.raise_for_status()
+        result = response.json()
+        if isinstance(result, list) and "generated_text" in result[0]:
+            optimized_query = result[0]["generated_text"]
+            logging.info(f"✅ Requête optimisée : {optimized_query}")
+            return optimized_query
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ Erreur API Hugging Face : {e}")
+    
+    return user_prompt  # Retourne le prompt original en cas d'erreur
+
 
 # Configuration du logging pour le debug
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -237,16 +267,16 @@ def search_wikipedia(query):
     return None
 
 def get_historical_data(user_query):
-    """Exécute la recherche, corrige le texte et récupère les données Wikipédia."""
+    """Exécute la recherche, optimise le prompt avec IA et récupère les données Wikipédia."""
     original_prompt = user_query  # 🔹 Sauvegarde le prompt original
 
     corrected_query = correct_spelling_api(user_query)  # 🔹 Correction orthographique
     logging.debug(f"Correction orthographique : {user_query} → {corrected_query}")
 
-    keyword = extract_main_keyword(corrected_query)  # 🔹 Extraction du mot-clé principal
-    logging.debug(f"Mot-clé extrait : {keyword}")
+    optimized_query = optimize_query_with_ai(corrected_query)  # 🔹 Optimisation avec IA
+    logging.debug(f"Requête IA optimisée : {optimized_query}")
 
-    wikipedia_url = search_wikipedia(keyword)
+    wikipedia_url = search_wikipedia(optimized_query)
 
     if wikipedia_url:
         # 🔹 Scraping du contenu de la page Wikipédia
@@ -264,7 +294,7 @@ def get_historical_data(user_query):
 
             wikipedia_data = {
                 "prompt_utilisateur": original_prompt,
-                "recherche_wikipedia": keyword,
+                "recherche_wikipedia": optimized_query,
                 "titre": title,
                 "source": wikipedia_url,
                 "contenu": content
@@ -276,7 +306,7 @@ def get_historical_data(user_query):
             logging.error(f"❌ Erreur lors du scraping Wikipédia : {e}")
             wikipedia_data = {
                 "prompt_utilisateur": original_prompt,
-                "recherche_wikipedia": keyword,
+                "recherche_wikipedia": optimized_query,
                 "titre": "Erreur",
                 "source": wikipedia_url,
                 "contenu": "Erreur de récupération du contenu."
@@ -285,7 +315,7 @@ def get_historical_data(user_query):
     else:
         wikipedia_data = {
             "prompt_utilisateur": original_prompt,
-            "recherche_wikipedia": keyword,
+            "recherche_wikipedia": optimized_query,
             "titre": "Aucune donnée trouvée",
             "source": "Aucune source disponible",
             "contenu": "Aucune donnée historique disponible."
